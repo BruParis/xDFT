@@ -1,8 +1,21 @@
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <math_constants.h>
 
 #include "../include/02_fft_cooley_tukey.cuh"
 #include "../include/Complex1dFP32.cuh"
+
+// Fails loudly if a launch did not happen (e.g. too much shared memory), so
+// that a method never reports timings for a kernel that did not run.
+static void check_launch(const char *name, int N) {
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "%s: kernel launch failed for N=%d: %s\n", name, N,
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+}
 
 static __device__ int bit_reversal(int idx, int logN) {
   int reversed = 0;
@@ -18,16 +31,12 @@ __global__ void fft_cooley_tukey_kernel(cufftComplex *data, int N) {
   int thrIdx = threadIdx.x;
   int logN = __log2f(N);
 
-  cufftComplex *d_data = data + batchIdx * N;
+  extern __shared__ cufftComplex smem[]; // N elements, size set at launch
+  cufftComplex *g = data + batchIdx * N; // This block's FFT in global memory
 
-  // Bit-reversal reordering
+  // Load into shared memory, in bit-reversed order
   for (int k = thrIdx; k < N; k += blockDim.x) {
-    int reversedIdx = bit_reversal(k, logN);
-    if (reversedIdx > k) {
-      cufftComplex temp = d_data[k];
-      d_data[k] = d_data[reversedIdx];
-      d_data[reversedIdx] = temp;
-    }
+    smem[bit_reversal(k, logN)] = g[k];
   }
 
   __syncthreads();
@@ -47,16 +56,21 @@ __global__ void fft_cooley_tukey_kernel(cufftComplex *data, int N) {
       float theta = angle * (k % step);
       cufftComplex twiddle = {cosf(theta), sinf(theta)};
 
-      cufftComplex even = d_data[i];
-      cufftComplex odd = d_data[j];
+      cufftComplex even = smem[i];
+      cufftComplex odd = smem[j];
 
       // Butterfly operation
       cufftComplex t = cuCmulf(twiddle, odd);
-      d_data[i] = cuCaddf(even, t);
-      d_data[j] = cuCsubf(even, t);
+      smem[i] = cuCaddf(even, t);
+      smem[j] = cuCsubf(even, t);
     }
 
     __syncthreads();
+  }
+
+  // Copy the result back to global memory
+  for (int k = thrIdx; k < N; k += blockDim.x) {
+    g[k] = smem[k];
   }
 }
 
@@ -68,7 +82,10 @@ void cooley_tukey_fft(Complex1dFP32 d_A) {
   int threads_per_block = 256;
   int blocksPerGrid = nBatch;
 
-  fft_cooley_tukey_kernel<<<blocksPerGrid, threads_per_block>>>(d_A.ptr, N);
+  size_t smem = N * sizeof(cufftComplex);
+  fft_cooley_tukey_kernel<<<blocksPerGrid, threads_per_block, smem>>>(d_A.ptr,
+                                                                      N);
+  check_launch("cooley_tukey_fft", N);
 
   cudaDeviceSynchronize();
 }

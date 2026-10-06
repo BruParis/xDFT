@@ -1,17 +1,38 @@
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <math_constants.h>
 
 #include "../include/03_fft_stockham.cuh"
 #include "../include/Complex1dFP32.cuh"
 
-__global__ void fft_stockham_kernel(cufftComplex *b_input,
-                                    cufftComplex *b_output, int N) {
+// Fails loudly if a launch did not happen (e.g. too much shared memory), so
+// that a method never reports timings for a kernel that did not run.
+static void check_launch(const char *name, int N) {
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "%s: kernel launch failed for N=%d: %s\n", name, N,
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+}
+
+__global__ void fft_stockham_kernel(cufftComplex *b_input, int N) {
   unsigned int batchIdx = blockIdx.x;
   unsigned int thrIdx = threadIdx.x;
-  unsigned int numStep = log2f(N);
 
-  cufftComplex *input = b_input + batchIdx * N;
-  cufftComplex *output = b_output + batchIdx * N;
+  extern __shared__ cufftComplex smem[]; // init shared memory
+  cufftComplex *input = smem;
+  cufftComplex *output = smem + N;
+
+  cufftComplex *g = b_input + batchIdx * N; // This block FFT's in global memory
+
+  // load into shared memeory
+  for (int i = thrIdx; i < N; i += blockDim.x) {
+    input[i] = g[i];
+  }
+
+  __syncthreads();
 
   int halfN = N / 2;
   for (int step = 1; step < N; step *= 2) {
@@ -69,8 +90,10 @@ __global__ void fft_stockham_kernel(cufftComplex *b_input,
 
   // Copy the result to the batch_output
   for (int i = thrIdx; i < N; i += blockDim.x) {
-    b_output[batchIdx * N + i] = input[i];
+    g[i] = input[i];
   }
+
+  __syncthreads();
 }
 
 void stockham_fft(Complex1dFP32 d_A) {
@@ -83,17 +106,18 @@ void stockham_fft(Complex1dFP32 d_A) {
   int blocksPerGrid = nBatch;
 
   // Allocate memory for the output
-  cufftComplex *d_output;
-  cudaMalloc(&d_output, N * nBatch * sizeof(cufftComplex));
+  // cufftComplex *d_output;
+  // cudaMalloc(&d_output, N * nBatch * sizeof(cufftComplex));
 
-  fft_stockham_kernel<<<blocksPerGrid, threads_per_block>>>(d_A.ptr, d_output,
-                                                            N);
+  size_t smem = 2 * N * sizeof(cufftComplex);
+  fft_stockham_kernel<<<blocksPerGrid, threads_per_block, smem>>>(d_A.ptr, N);
+  check_launch("stockham_fft", N);
 
   // Copy back the result
-  cudaMemcpy(d_A.ptr, d_output, N * nBatch * sizeof(cufftComplex),
-             cudaMemcpyDeviceToDevice);
+  // cudaMemcpy(d_A.ptr, d_output, N * nBatch * sizeof(cufftComplex),
+  //            cudaMemcpyDeviceToDevice);
 
-  cudaFree(d_output);
+  // cudaFree(d_output);
 
   cudaDeviceSynchronize();
 }

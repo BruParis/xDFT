@@ -17,7 +17,7 @@ static void usage(FILE *out) {
           "  xdft help                         show this message\n"
           "\n"
           "Options for `run`:\n"
-          "  --sizes a,b,c   FFT lengths, powers of 2 (default: 256,...,8192)\n"
+          "  --sizes a,b,c   FFT lengths, powers of 2 (default: 256,...,2048)\n"
           "  --batch N       number of FFTs per run (default: 256)\n"
           "  --runs N        timed executions per size (default: 10)\n"
           "  --no-check      skip the comparison against cuFFT\n"
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
   }
 
   // Defaults
-  std::vector<int> sizes = {256, 512, 1024, 2048, 4096, 8192};
+  std::vector<int> sizes = {256, 512, 1024, 2048};
   int batch = 256, runs = 10;
   bool check = true;
 
