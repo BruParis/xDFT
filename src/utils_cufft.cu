@@ -29,7 +29,7 @@ void random_init_complex(Complex1dFP32 complex, int MAX_VAL, int MIN_VAL) {
     printf("Complex must be on host for random initialization\n");
   }
   // Getting Complex Dimension
-  int length = complex.length;
+  int length = complex.length * complex.batch;
 
   // Initializing val to each location
   for (int i = 0; i < length; i++) {
@@ -42,7 +42,7 @@ void random_init_complex(Complex1dFP32 complex, int MAX_VAL, int MIN_VAL) {
 
 void init_complex(Complex1dFP32 complex, float val) {
   // Getting Complex Dimension
-  int length = complex.length;
+  int length = complex.length * complex.batch;
 
   // Initializing val to each location
   for (int i = 0; i < length; i++) {
@@ -95,7 +95,7 @@ Complex1dFP32 cufft_run(Complex1dFP32 h_data_ref, int RANK) {
   cufftExecC2C(plan, d_data.ptr, d_data.ptr, CUFFT_FORWARD);
   cudaDeviceSynchronize();
   // do not forget to normalize !
-  // d_data.normalize();
+  d_data.normalize();
 
   // copy back to host
   d_data.copy_to_host(h_data);

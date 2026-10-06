@@ -4,7 +4,7 @@
 #include "../include/03_fft_stockham.cuh"
 #include "../include/Complex1dFP32.cuh"
 
-__device__ int bit_reversal(int idx, int logN) {
+static __device__ int bit_reversal(int idx, int logN) {
   int reversed = 0;
   for (int i = 0; i < logN; ++i) {
     reversed = (reversed << 1) | (idx & 1);

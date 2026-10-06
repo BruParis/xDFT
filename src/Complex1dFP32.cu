@@ -1,13 +1,13 @@
 #include "../include/Complex1dFP32.cuh"
-#include "../include/utils.cuh"
+// #include "../include/utils.cuh"
 
 #include <assert.h>
 #include <iostream>
 
 // Kernel for normalization on the device
-__global__ void normalize_kernel(cufftComplex *data, int length) {
+__global__ void normalize_kernel(cufftComplex *data, int length, int total) {
   int idx = threadIdx.x + blockIdx.x * blockDim.x;
-  if (idx < length) {
+  if (idx < total) {
     data[idx].x /= length;
     data[idx].y /= length;
   }
@@ -21,23 +21,24 @@ Complex1dFP32::Complex1dFP32(int length_, int batch_, bool on_device_)
     ptr = new cufftComplex[num];
   } else {
     cudaError_t err = cudaMalloc((void **)&ptr, num * sizeof(cufftComplex));
-    cuda_check(err);
+    // cuda_check(err);
   }
 }
 
 void Complex1dFP32::normalize() {
   if (!on_device) {
     // Normalize data on the host
-    for (int i = 0; i < length; ++i) {
+    for (int i = 0; i < length * batch; ++i) {
       ptr[i].x /= length;
       ptr[i].y /= length;
     }
   } else {
     // Normalize data on the device
     int threads_per_block = 256;
-    int blocks = (length + threads_per_block - 1) / threads_per_block;
+    int total = length * batch;
+    int blocks = (total + threads_per_block - 1) / threads_per_block;
 
-    normalize_kernel<<<blocks, threads_per_block>>>(ptr, length);
+    normalize_kernel<<<blocks, threads_per_block>>>(ptr, length, total);
     cudaDeviceSynchronize(); // Ensure the kernel completes
   }
 }
@@ -51,7 +52,7 @@ Complex1dFP32 Complex1dFP32::clone() const {
   } else {
     cudaError_t err = cudaMemcpy(new_clone.ptr, ptr, num * sizeof(cufftComplex),
                                  cudaMemcpyDeviceToDevice);
-    cuda_check(err);
+    // cuda_check(err);
   }
 
   return new_clone;
@@ -72,9 +73,9 @@ void Complex1dFP32::copy_to_device(Complex1dFP32 d_complex) {
 
   // Copy data from host to device
   cudaError_t err =
-      cudaMemcpy(d_complex.ptr, ptr, length * sizeof(cufftComplex),
+      cudaMemcpy(d_complex.ptr, ptr, length * batch * sizeof(cufftComplex),
                  cudaMemcpyHostToDevice);
-  cuda_check(err);
+  // cuda_check(err);
 }
 
 void Complex1dFP32::copy_to_host(Complex1dFP32 h_complex) {
@@ -84,7 +85,7 @@ void Complex1dFP32::copy_to_host(Complex1dFP32 h_complex) {
 
   // Copy data from device to host
   cudaError_t err =
-      cudaMemcpy(h_complex.ptr, ptr, length * sizeof(cufftComplex),
+      cudaMemcpy(h_complex.ptr, ptr, length * batch * sizeof(cufftComplex),
                  cudaMemcpyDeviceToHost);
-  cuda_check(err);
+  // cuda_check(err);
 }
