@@ -31,7 +31,7 @@ static const Method METHODS_TABLE[] = {
      false, false},
     {"cooley-tukey", "Cooley-Tukey radix-2", cooley_tukey_fft, 1e-4f, false,
      false},
-    {"stockham", "Stockham radix-2", stockham_fft, 1e-4f, false, true},
+    {"stockham", "Stockham radix-2", stockham_fft, 1e-4f, false, false},
 };
 
 const Method *get_methods(int *count) {
