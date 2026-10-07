@@ -1,4 +1,5 @@
 CC = nvcc
+CFLAGS = -lineinfo # source lines in ncu, no perf cost
 
 HEADERS = $(wildcard include/*.cuh)
 OBJS = build/Complex1dFP32.o build/utils_cufft.o build/methods.o \
@@ -8,7 +9,7 @@ OBJS = build/Complex1dFP32.o build/utils_cufft.o build/methods.o \
 # Old standalone benchmarks, kept until xdft reproduces their output
 LEGACY_TARGETS = build/00c_benchmark_cuFFT.out build/00d_benchmark_fft_cpu.out build/01_fft_benchmark_naive.out build/02_fft_benchmark_cooley_tukey.out build/03_fft_benchmark_stockham.out
 
-.PHONY: all legacy clean
+.PHONY: all legacy clean profile-nsys
 
 all: build/xdft
 
@@ -19,11 +20,20 @@ build:
 
 # Single benchmark executable: build/xdft help
 build/xdft: $(OBJS) | build
-	$(CC) $(OBJS) -lcufft -o $@
+	$(CC) $(CFLAGS) $(OBJS) -lcufft -o $@
+
+# Profiling: make profile-nsys ARGS="..." GPU=1
+# Reports are written to build/profile/
+ARGS ?= help
+GPU ?= 0
+
+profile-nsys: build/xdft
+	@mkdir -p build/profile
+	CUDA_VISIBLE_DEVICES=$(GPU) nsys profile --force-overwrite=true --stats=true -o build/profile/xdft build/xdft $(ARGS)
 
 # Every src/*.cu is compiled to build/*.o
 build/%.o: src/%.cu $(HEADERS) | build
-	$(CC) -dc $< -o $@
+	$(CC) $(CFLAGS) -dc $< -o $@
 
 DEVICE_USAGE = --ptxas-options=-v
 HOST_COMPILE_FLAG = -c
